@@ -1,6 +1,6 @@
 {
 
-FastMM 5.02
+FastMM 5.03
 
 Description:
   A fast replacement memory manager for Embarcadero Delphi applications that scales well across multiple threads and CPU
@@ -70,6 +70,67 @@ Usage Instructions:
   favour performance, low memory usage, or a blend of both.  The default strategy is to blend the performance and low
   memory usage goals.
 
+  The following conditional defines are supported:
+    FastMM_FullDebugMode (or FullDebugMode) - If defined then FastMM_EnterDebugMode will be called on startup so that
+    the memory manager starts up in debug mode.  If FullDebugMode is defined then the
+    FastMM_DebugLibraryStaticDependency define is also implied.
+
+    FastMM_FullDebugModeWhenDLLAvailable (or FullDebugModeWhenDLLAvailable) - If defined an attempt will be made to load
+    the debug support library during startup.  If successful then FastMM_EnterDebugMode will be called so that the
+    memory manager starts up in debug mode.
+
+    FastMM_DebugLibraryStaticDependency - If defined there will be a static dependency on the debug support library,
+    FastMM_FullDebugMode.dll (32-bit) or FastMM_FullDebugMode64.dll (64-bit).  If FastMM_EnterDebugMode will be called
+    in the startup code and the memory manager will also be shared between an application and libraries, then it
+    may be necessary to enable this define in order to avoid DLL unload order issues during application shutdown
+    (typically manifesting as an access violation when attempting to report on memory leaks during shutdown).
+    It is a longstanding issue with Windows that it is not always able to unload DLLs in the correct order during
+    application shutdown when DLLs are loaded dynamically during startup.  Note that while enabling this define will
+    introduce a static dependency on the debug support library, it does not actually enter debug mode by default -
+    FastMM_EnterDebugMode must still be called to enter debug mode, and FastMM_ExitDebugMode can be called to exit debug
+    mode at any time.
+
+    FastMM_ClearLogFileOnStartup (or ClearLogFileOnStartup) - When defined FastMM_DeleteEventLogFile will be called
+    during startup, deleting the event log file (if it exists).
+
+    FastMM_Align16Bytes (or Align16Bytes) - When defined FastMM_EnterMinimumAddressAlignment(maa16Bytes) will be called
+    during startup, forcing a minimum of 16 byte alignment for memory blocks.  Note that this has no effect under 64
+    bit, since 16 bytes is already the minimum alignment.
+
+    FastMM_5Arenas, FastMM_6Arenas .. FastMM_16Arenas - Increases the number of arenas from the default values.  See the
+    notes for the CFastMM_SmallBlockArenaCount constant for guidance on the appropriate number of arenas.
+
+    FastMM_DisableAutomaticInstall - Disables automatic installation of FastMM as the memory manager.  If defined then
+    FastMM_Initialize should be called from application code in order to install FastMM, and FastMM_Finalize to
+    uninstall and perform the leak check (if enabled), etc.
+
+    FastMM_EnableMemoryLeakReporting (or EnableMemoryLeakReporting) - If defined then the memory leak summary and detail
+    will be added to the set of events logged to file (FastMM_LogToFileEvents) and the leak summary will be added to the
+    set of events displayed on-screen (FastMM_MessageBoxEvents).
+
+    FastMM_RequireDebuggerPresenceForLeakReporting (or RequireDebuggerPresenceForLeakReporting) - Used in conjunction
+    with EnableMemoryLeakReporting - if the application is not running under the debugger then the
+    EnableMemoryLeakReporting define is ignored.
+
+    FastMM_NoMessageBoxes (or NoMessageBoxes) - Clears the set of events that will cause a message box to be displayed
+    (FastMM_MessageBoxEvents) on startup.
+
+    FastMM_ShareMM (or ShareMM) - If defined then FastMM_ShareMemoryManager will be called during startup, sharing the
+    memory manager of the module if the memory manager of another module is not already being shared.
+
+    FastMM_ShareMMIfLibrary (or ShareMMIfLibrary) - If defined and the module is not a library then the ShareMM define
+    is disabled.
+
+    FastMM_AttemptToUseSharedMM (or AttemptToUseSharedMM) - If defined FastMM_AttemptToUseSharedMemoryManager will be
+    called during startup, switching to using the memory manager shared by another module (if there is a shared memory
+    manager).
+
+    FastMM_NeverUninstall (or NeverUninstall) - Sets the FastMM_NeverUninstall global variable to True.  Use this if any
+    leaked pointers should remain valid after this unit is finalized.
+
+    PurePascal - The assembly language code paths are disabled, and only the Pascal code paths are used.  This is
+    normally used for debugging purposes only.
+
 Supported Compilers:
   Delphi XE3 and later
 
@@ -93,6 +154,24 @@ uses
 {$TypedAddress Off}
 {$LongStrings On}
 {$Align 8}
+
+{Translate legacy v4 defines to their current names.}
+{$ifdef FullDebugMode} {$define FastMM_FullDebugMode} {$endif}
+{$ifdef FullDebugModeWhenDLLAvailable} {$define FastMM_FullDebugModeWhenDLLAvailable} {$endif}
+{$ifdef ClearLogFileOnStartup} {$define FastMM_ClearLogFileOnStartup} {$endif}
+{$ifdef Align16Bytes} {$define FastMM_Align16Bytes} {$endif}
+{$ifdef EnableMemoryLeakReporting} {$define FastMM_EnableMemoryLeakReporting} {$endif}
+{$ifdef RequireDebuggerPresenceForLeakReporting} {$define FastMM_RequireDebuggerPresenceForLeakReporting} {$endif}
+{$ifdef NoMessageBoxes} {$define FastMM_NoMessageBoxes} {$endif}
+{$ifdef ShareMM} {$define FastMM_ShareMM} {$endif}
+{$ifdef ShareMM} {$define FastMM_ShareMMIfLibrary} {$endif}
+{$ifdef ShareMM} {$define FastMM_AttemptToUseSharedMM} {$endif}
+{$ifdef ShareMM} {$define FastMM_NeverUninstall} {$endif}
+
+{If the "FastMM_FullDebugMode" is defined then a static dependency on the debug support library is implied.}
+{$ifdef FastMM_FullDebugMode}
+{$define FastMM_DebugLibraryStaticDependency}
+{$endif}
 
 {Calling the deprecated GetHeapStatus is unavoidable, so suppress the warning.}
 {$warn Symbol_Deprecated Off}
@@ -123,7 +202,7 @@ uses
 const
 
   {The current version of FastMM.  The first digit is the major version, followed by a two digit minor version number.}
-  CFastMM_Version = 502;
+  CFastMM_Version = 503;
 
   {The number of arenas for small, medium and large blocks.  Increasing the number of arenas decreases the likelihood
   of thread contention happening (when the number of threads inside a GetMem call is greater than the number of arenas),
@@ -187,6 +266,9 @@ const
   CFastMM_MediumBlockArenaCount = 4;
   CFastMM_LargeBlockArenaCount = 8;
 {$endif}
+
+  {The default name of debug support library.}
+  CFastMM_DefaultDebugSupportLibraryName = {$ifndef 64Bit}'FastMM_FullDebugMode.dll'{$else}'FastMM_FullDebugMode64.dll'{$endif};
 
 type
 
@@ -325,6 +407,10 @@ type
 
   TFastMM_WalkBlocksCallback = procedure(const ABlockInfo: TFastMM_WalkAllocatedBlocks_BlockInfo);
 
+  {The enumeration returned by the FastMM_DetectStringData, which is used to determine whether a memory block
+  potentially contains string data.}
+  TFastMM_StringDataType = (sdtNotAString, sdtAnsiString, sdtUnicodeString);
+
   TFastMM_MinimumAddressAlignment = (maa8Bytes, maa16Bytes, maa32Bytes, maa64Bytes);
   TFastMM_MinimumAddressAlignmentSet = set of TFastMM_MinimumAddressAlignment;
 
@@ -423,6 +509,15 @@ successfully, False if one or more arenas were skipped due to a lock timeout.}
 function FastMM_WalkBlocks(ACallBack: TFastMM_WalkBlocksCallback; AWalkBlockTypes: TFastMM_WalkBlocksBlockTypes = [];
   AWalkUsedBlocksOnly: Boolean = True; AUserData: Pointer = nil; ALockTimeoutMilliseconds: Cardinal = 1000): Boolean;
 
+{Attempts to determine whether APMemoryBlock points to string data.  Used by the leak classification code when a block
+cannot be identified as a class instance.  May also be used inside the FastMM_WalkBlocks callback in order to determine
+the content of walked blocks.}
+function FastMM_DetectStringData(APMemoryBlock: Pointer; AAvailableSpaceInBlock: NativeInt): TFastMM_StringDataType;
+{Attempts to determine whether APointer points to a valid class instance.  Returns the class if it does, otherwise nil.
+APointer is assumed to point to to at least 4 (32-bit) or 8 (64-bit) readable bytes of memory.  This may be used inside
+the FastMM_WalkBlocks callback in order to determine the content of walked blocks.}
+function FastMM_DetectClassInstance(APointer: Pointer): TClass;
+
 {Walks all debug mode blocks (blocks that were allocated between a FastMM_EnterDebugMode and FastMM_ExitDebugMode call),
 checking for corruption of the debug header, footer, and in the case of freed blocks whether the block content was
 modified after the block was freed.  If a corruption is encountered an error message will be logged and/or displayed
@@ -430,6 +525,11 @@ modified after the block was freed.  If a corruption is encountered an error mes
 always returns True (unless an exception is raised), so may be used in a debug watch to scan blocks every time the
 debugger stops on a breakpoint, etc.}
 function FastMM_ScanDebugBlocksForCorruption: Boolean;
+
+{Returns the number of bytes of address space that is currently either committed or reserved by FastMM.  This includes
+the total used by the heap, as well as all internal management structures.  This may be restricted via the
+FastMM_SetMemoryUsageLimit call.}
+function FastMM_GetCurrentMemoryUsage: NativeUInt;
 
 {Returns a THeapStatus structure with information about the current memory usage.}
 function FastMM_GetHeapStatus: THeapStatus;
@@ -493,6 +593,14 @@ procedure FastMM_ExitMinimumAddressAlignment(AMinimumAddressAlignment: TFastMM_M
 {Returns the current minimum address alignment in effect.}
 function FastMM_GetCurrentMinimumAddressAlignment: TFastMM_MinimumAddressAlignment;
 
+{Allows the application to specify a maximum amount of memory that may be allocated through FastMM.  An attempt to
+allocate more than this amount will fail and lead to an "Out of Memory" exception.  Note that after the first failure
+the maximum amount of memory that may be allocated is slightly increased in order to allow the application to allocate
+some additional memory in subsequent attempts.  This is to allow for a graceful shutdown.  Specify 0 for no limit (the
+default).}
+procedure FastMM_SetMemoryUsageLimit(AMaximumAllowedMemoryUsage: NativeUInt);
+function FastMM_GetMemoryUsageLimit: NativeUInt;
+
 {Attempts to load the debug support library specified by FastMM_DebugSupportLibraryName.  On success it will set the
 FastMM_GetStackTrace and FastMM_ConvertStackTraceToText handlers to point to the routines in the debug library, provided
 alternate handlers have not yet been assigned by the application.  Returns True if the library was loaded successfully,
@@ -548,18 +656,13 @@ var
   FastMM_GetStackTrace: TFastMM_GetStackTrace;
   FastMM_ConvertStackTraceToText: TFastMM_ConvertStackTraceToText;
 
-  {The stack trace routines from the FastMM_FullDebugMode support DLL.  These will only be set if the support DLL is
-  loaded.}
-  DebugLibrary_GetRawStackTrace: TFastMM_GetStackTrace;
-  DebugLibrary_GetFrameBasedStackTrace: TFastMM_GetStackTrace;
-
   {---------Debug options---------}
 
   {The name of the library that contains the functionality used to obtain the current call stack, and also to convert a
   call stack to unit and line number information.  The first time EnterDebugMode is called an attempt will be made to
   load this library, unless handlers for both FastMM_GetStackTrace and FastMM_ConvertStackTraceToText have already been
   set.}
-  FastMM_DebugSupportLibraryName: PWideChar = {$ifndef 64Bit}'FastMM_FullDebugMode.dll'{$else}'FastMM_FullDebugMode64.dll'{$endif};
+  FastMM_DebugSupportLibraryName: PWideChar = CFastMM_DefaultDebugSupportLibraryName;
   {If True then FastMM will not be finalized and uninstalled when this unit is finalized.  Use this option when for some
   reason there are live pointers that will still be in use after this unit is finalized.  Under normal operation this
   should not be necessary.}
@@ -726,9 +829,6 @@ var
     + '{20}% Efficiency'#13#10#13#10
     + 'Usage Detail:'#13#10;
   FastMM_LogStateToFileTemplate_UsageDetail: PWideChar = '{21} bytes: {8} x {22} ({23} bytes avg.)'#13#10;
-  {Initialization error messages.}
-  FastMM_DebugSupportLibraryNotAvailableError: PWideChar = 'The FastMM debug support library could not be loaded.';
-  FastMM_DebugSupportLibraryNotAvailableError_Caption: PWideChar = 'Fatal Error';
 
 implementation
 
@@ -870,8 +970,9 @@ const
   {The number of bytes of address space that is reserved and only released once the first OS allocation request fails.
   This allows some subsequent memory allocation requests to succeed in order to allow the application to allocate some
   memory for error handling, etc. in response to the first EOutOfMemory exception.  This only applies to 32-bit
-  applications.}
-  CEmergencyReserveAddressSpace = CMaximumMediumBlockSpanSize;
+  applications.  The default reserve is enough address space for a medium block span as well as a similarly sized
+  large block.}
+  CEmergencyReserveAddressSpace = 2 * CMaximumMediumBlockSpanSize;
 {$endif}
 
   {Event and state log tokens}
@@ -1266,9 +1367,6 @@ type
     AccessRights: TMemoryAccessRights;
   end;
 
-  {Used by the DetectStringData routine to detect whether a leaked block contains string data.}
-  TStringDataType = (stNotAString, stAnsiString, stUnicodeString);
-
   {An entry in the binary search tree of memory leaks.  Leaks are grouped by block size and class.}
   TMemoryLeakSummaryEntry = record
     {The user size of the block}
@@ -1485,6 +1583,13 @@ var
   EmergencyReserveAddressSpace: Pointer;
 {$endif}
 
+  {The amount of address space that is currently allocated.}
+  MemoryUsageCurrent: NativeUInt;
+
+  {The current memory usage limit.  0 = no limit.}
+  MemoryUsageLimit: NativeUInt;
+  MemoryUsageLimitGraceAmount: NativeUInt;
+
   {True between the FastMM_Initialize call and the FastMM_Finalize call.}
   UnitCurrentlyInitialized: Boolean;
   {The current installation state of FastMM.}
@@ -1505,11 +1610,10 @@ var
   manager which would prevent the switching between debug and normal mode.}
   InstalledMemoryManager: TMemoryManagerEx;
   {The handle to the debug mode support DLL.}
+{$ifndef FastMM_DebugLibraryStaticDependency}
   DebugSupportLibraryHandle: NativeUInt;
+{$endif}
   DebugSupportConfigured: Boolean;
-  {The legacy stack trace to text conversion routine from the FastMM_FullDebugMode support DLL.  This will only be set
-  if the support DLL is loaded.  This is used by the FastMM_DebugLibrary_LegacyLogStackTrace_Wrapper function.}
-  DebugLibrary_LogStackTrace_Legacy: TFastMM_LegacyConvertStackTraceToText;
 
   {The full path and filename for the event log.}
   EventLogFilename: array[0..CFilenameMaxLength] of WideChar;
@@ -1525,6 +1629,23 @@ var
     '_', 'P', 'I', 'D', '_', '?', '?', '?', '?', '?', '?', '?', '?', #0);
   {The handle of the memory mapped file.}
   SharingFileMappingObjectHandle: NativeUInt;
+{$endif}
+
+{$ifndef FastMM_DebugLibraryStaticDependency}
+  {The stack trace routines from the FastMM_FullDebugMode support DLL.  These will only be set if the support DLL is
+  loaded.}
+  DebugLibrary_GetRawStackTrace: TFastMM_GetStackTrace;
+  DebugLibrary_GetFrameBasedStackTrace: TFastMM_GetStackTrace;
+  {The legacy stack trace to text conversion routine from the FastMM_FullDebugMode support DLL.  This will only be set
+  if the support DLL is loaded.  This is used by the FastMM_DebugLibrary_LegacyLogStackTrace_Wrapper function.}
+  DebugLibrary_LogStackTrace_Legacy: TFastMM_LegacyConvertStackTraceToText;
+{$else}
+procedure DebugLibrary_GetRawStackTrace(APReturnAddresses: PNativeUInt; AMaxDepth, ASkipFrames: Cardinal);
+  external CFastMM_DefaultDebugSupportLibraryName name 'GetRawStackTrace';
+procedure DebugLibrary_GetFrameBasedStackTrace(APReturnAddresses: PNativeUInt; AMaxDepth, ASkipFrames: Cardinal);
+  external CFastMM_DefaultDebugSupportLibraryName name 'GetFrameBasedStackTrace';
+function DebugLibrary_LogStackTrace_Legacy(APReturnAddresses: PNativeUInt; AMaxDepth: Cardinal;
+  APBuffer: PAnsiChar): PAnsiChar; external CFastMM_DefaultDebugSupportLibraryName name 'LogStackTrace';
 {$endif}
 
 {--------------------------------------------------------}
@@ -2121,8 +2242,20 @@ end;
 procedure ReleaseEmergencyReserveAddressSpace; forward;
 function CharCount(APFirstFreeChar, APBufferStart: PWideChar): Integer; forward;
 
-{Allocates a block of memory from the operating system.  The block is assumed to be aligned to at least a 64 byte
-boundary, and is assumed to be zero initialized.  Returns nil on error.}
+{Releases a block of memory back to the operating system.  Returns 0 on success, -1 on failure.}
+function OS_FreeVirtualMemory(APointer: Pointer; ABlockSize: NativeInt): Integer;
+begin
+  if Winapi.Windows.VirtualFree(APointer, 0, MEM_RELEASE) then
+  begin
+    AtomicDecrement(MemoryUsageCurrent, NativeUInt(ABlockSize));
+    Result := 0;
+  end
+  else
+    Result := -1;
+end;
+
+{Allocates a block of memory from the operating system.  The block will be aligned to at least a 64 byte boundary, and
+will be zero initialized.  Returns nil on error.}
 function OS_AllocateVirtualMemory(ABlockSize: NativeInt; AAllocateTopDown: Boolean;
   AReserveOnlyNoReadWriteAccess: Boolean): Pointer;
 begin
@@ -2139,6 +2272,22 @@ begin
     if Result = nil then
       ReleaseEmergencyReserveAddressSpace;
   end;
+
+  if Result <> nil then
+  begin
+    AtomicIncrement(MemoryUsageCurrent, NativeUInt(ABlockSize));
+
+    if (MemoryUsageLimit > 0)
+      and (MemoryUsageCurrent > MemoryUsageLimit) then
+    begin
+      Inc(MemoryUsageLimit, MemoryUsageLimitGraceAmount);
+      MemoryUsageLimitGraceAmount := 0;
+
+      OS_FreeVirtualMemory(Result, ABlockSize);
+      Result := nil;
+    end;
+  end;
+
 end;
 
 function OS_AllocateVirtualMemoryAtAddress(APAddress: Pointer; ABlockSize: NativeInt;
@@ -2153,15 +2302,21 @@ begin
     Result := (Winapi.Windows.VirtualAlloc(APAddress, ABlockSize, MEM_RESERVE, PAGE_READWRITE) <> nil)
       and (Winapi.Windows.VirtualAlloc(APAddress, ABlockSize, MEM_COMMIT, PAGE_READWRITE) <> nil);
   end;
-end;
 
-{Releases a block of memory back to the operating system.  Returns 0 on success, -1 on failure.}
-function OS_FreeVirtualMemory(APointer: Pointer): Integer;
-begin
-  if Winapi.Windows.VirtualFree(APointer, 0, MEM_RELEASE) then
-    Result := 0
-  else
-    Result := -1;
+  if Result then
+  begin
+    AtomicIncrement(MemoryUsageCurrent, NativeUInt(ABlockSize));
+
+    if (MemoryUsageLimit > 0)
+      and (MemoryUsageCurrent > MemoryUsageLimit) then
+    begin
+      Inc(MemoryUsageLimit, MemoryUsageLimitGraceAmount);
+      MemoryUsageLimitGraceAmount := 0;
+
+      OS_FreeVirtualMemory(APAddress, ABlockSize);
+      Result := False;
+    end;
+  end;
 end;
 
 {Determines the size and state of the virtual memory region starting at APRegionStart.}
@@ -2447,12 +2602,13 @@ begin
     Result := OS_CreateOrAppendFile(APFileName, LPBufferStart, NativeInt(LPBufferPos) - NativeInt(LPBufferStart));
 
   finally
-    OS_FreeVirtualMemory(LPBufferStart);
+    OS_FreeVirtualMemory(LPBufferStart, LBufferSize);
   end;
 end;
 
-{Returns the class for a memory block.  Returns nil if it is not a valid class.  Used by the leak detection code.}
-function DetectClassInstance(APointer: Pointer): TClass;
+{Attempts to determine whether APointer points to a valid class instance.  Returns the class if it does, otherwise nil.
+APointer is assumed to point to to at least 4 (32-bit) or 8 (64-bit) readable bytes of memory.}
+function FastMM_DetectClassInstance(APointer: Pointer): TClass;
 var
   LMemoryRegionInfo: TMemoryRegionInfo;
 
@@ -2516,9 +2672,9 @@ begin
     Result := nil;
 end;
 
-{Detects the probable string data type for a memory block.  Used by the leak classification code when a block cannot be
-identified as a known class instance.}
-function DetectStringData(APMemoryBlock: Pointer; AAvailableSpaceInBlock: NativeInt): TStringDataType;
+{Attempts to determine whether APMemoryBlock points to string data.  Used by the leak classification code when a block
+cannot be identified as a class instance.}
+function FastMM_DetectStringData(APMemoryBlock: Pointer; AAvailableSpaceInBlock: NativeInt): TFastMM_StringDataType;
 type
   {The layout of a string header.}
   PStrRec = ^StrRec;
@@ -2545,19 +2701,19 @@ var
 begin
   {Check that the reference count is within a reasonable range}
   if PStrRec(APMemoryBlock).refCnt > CMaxRefCount then
-    Exit(stNotAString);
+    Exit(sdtNotAString);
 
   {Element size must be either 1 (Ansi) or 2 (Unicode)}
   LElementSize := PStrRec(APMemoryBlock).elemSize;
   if (LElementSize <> 1) and (LElementSize <> 2) then
-    Exit(stNotAString);
+    Exit(sdtNotAString);
 
   {Get the string length and check whether it fits inside the block}
   LStringLength := PStrRec(APMemoryBlock).length;
   if (LStringLength <= 0)
     or (LStringLength >= (AAvailableSpaceInBlock - SizeOf(StrRec)) div LElementSize) then
   begin
-    Exit(stNotAString);
+    Exit(sdtNotAString);
   end;
 
   {Check for no characters outside the expected range.  If there are, then it is probably not a string.}
@@ -2567,16 +2723,16 @@ begin
 
     {There must be a trailing #0}
     if LPAnsiString[LStringLength] <> #0 then
-      Exit(stNotAString);
+      Exit(sdtNotAString);
 
     {Check that all characters are in the range considered valid.}
     for LCharInd := 0 to LStringLength - 1 do
     begin
       if LPAnsiString[LCharInd] < CMinCharCode then
-        Exit(stNotAString);
+        Exit(sdtNotAString);
     end;
 
-    Result := stAnsiString;
+    Result := sdtAnsiString;
   end
   else
   begin
@@ -2584,16 +2740,16 @@ begin
 
     {There must be a trailing #0}
     if LPUnicodeString[LStringLength] <> #0 then
-      Exit(stNotAString);
+      Exit(sdtNotAString);
 
     {Check that all characters are in the range considered valid.}
     for LCharInd := 0 to LStringLength - 1 do
     begin
       if LPUnicodeString[LCharInd] < CMinCharCode then
-        Exit(stNotAString);
+        Exit(sdtNotAString);
     end;
 
-    Result := stUnicodeString;
+    Result := sdtUnicodeString;
   end;
 end;
 
@@ -2605,14 +2761,14 @@ end;
 function DetectBlockContentType(APMemoryBlock: Pointer; AAvailableSpaceInBlock: NativeInt): NativeUInt;
 var
   LLeakedClass: TClass;
-  LStringType: TStringDataType;
+  LStringType: TFastMM_StringDataType;
 begin
   {Attempt to determine the class type for the block.}
-  LLeakedClass := DetectClassInstance(APMemoryBlock);
+  LLeakedClass := FastMM_DetectClassInstance(APMemoryBlock);
   if LLeakedClass <> nil then
     Exit(NativeUInt(LLeakedClass));
 
-  LStringType := DetectStringData(APMemoryBlock, AAvailableSpaceInBlock);
+  LStringType := FastMM_DetectStringData(APMemoryBlock, AAvailableSpaceInBlock);
   Result := Ord(LStringType);
 end;
 
@@ -3160,7 +3316,7 @@ begin
         LPDebugBlockHeader.StackTraceEntryCount, Result, APBufferEnd);
 
       {If it is a freed debug block then get the prior class from the debug header.}
-      LBlockContentType := NativeUInt(DetectClassInstance(@LPDebugBlockHeader.PreviouslyUsedByClass));
+      LBlockContentType := NativeUInt(FastMM_DetectClassInstance(@LPDebugBlockHeader.PreviouslyUsedByClass));
       Result := AddTokenValue_BlockContentType(ATokenValues, CEventLogTokenObjectClass, LBlockContentType, Result,
         APBufferEnd);
 
@@ -3856,7 +4012,7 @@ begin
 {$ifdef 32Bit}
   if EmergencyReserveAddressSpace <> nil then
   begin
-    OS_FreeVirtualMemory(EmergencyReserveAddressSpace);
+    OS_FreeVirtualMemory(EmergencyReserveAddressSpace, CEmergencyReserveAddressSpace);
     EmergencyReserveAddressSpace := nil;
   end;
 {$endif}
@@ -4030,7 +4186,7 @@ var
 begin
   if not APLargeBlockHeader.BlockIsSegmented then
   begin
-    Result := OS_FreeVirtualMemory(APLargeBlockHeader);
+    Result := OS_FreeVirtualMemory(APLargeBlockHeader, APLargeBlockHeader.ActualBlockSize);
   end
   else
   begin
@@ -4044,7 +4200,7 @@ begin
     begin
       OS_GetVirtualMemoryRegionInfo(LPCurrentSegment, LMemoryRegionInfo);
 
-      Result := OS_FreeVirtualMemory(LPCurrentSegment);
+      Result := OS_FreeVirtualMemory(LPCurrentSegment, LMemoryRegionInfo.RegionSize);
       if Result <> 0 then
         Break;
 
@@ -4668,7 +4824,7 @@ begin
       APMediumBlockManager.MediumBlockManagerLocked := 0;
 
     {Free the entire span.}
-    Result := OS_FreeVirtualMemory(APMediumBlockSpan);
+    Result := OS_FreeVirtualMemory(APMediumBlockSpan, APMediumBlockSpan.SpanSize);
   end;
 end;
 
@@ -8170,6 +8326,12 @@ begin
   end;
 end;
 
+{Returns the number of bytes of address space that is currently either committed or reserved by FastMM.}
+function FastMM_GetCurrentMemoryUsage: NativeUInt;
+begin
+  Result := MemoryUsageCurrent;
+end;
+
 {Returns a THeapStatus structure with information about the current memory usage.}
 function FastMM_GetHeapStatus: THeapStatus;
 begin
@@ -8515,7 +8677,7 @@ begin
       Result := AppendTextFile(PWideChar(AFilename), LPStateLogBufferStart, CharCount(LPStateLogPos, LPStateLogBufferStart));
 
     finally
-      OS_FreeVirtualMemory(LPLogInfo);
+      OS_FreeVirtualMemory(LPLogInfo, LBufferSize);
     end;
   end
   else
@@ -9238,6 +9400,24 @@ begin
     Result := maa8Bytes;
 end;
 
+{Allows the application to specify a maximum amount of memory that may be allocated through FastMM.  An attempt to
+allocate more than this amount will fail and lead to an "Out of Memory" exception.  Note that after the first failure
+the maximum amount of memory that may be allocated is slightly increased in order to allow the application to allocate
+some additional memory in subsequent attempts.  This is to allow for a graceful shutdown.  Specify 0 for no limit (the
+default).}
+procedure FastMM_SetMemoryUsageLimit(AMaximumAllowedMemoryUsage: NativeUInt);
+const
+  CMemoryUsageLimitGraceAmount = 32 * 1024 * 1024; //Hopefully enough to allow shutdown code to run
+begin
+  MemoryUsageLimit := AMaximumAllowedMemoryUsage;
+  MemoryUsageLimitGraceAmount := CMemoryUsageLimitGraceAmount;
+end;
+
+function FastMM_GetMemoryUsageLimit: NativeUInt;
+begin
+  Result := MemoryUsageLimit;
+end;
+
 {Gets the optimal move procedure for the given small block size.}
 function FastMM_InitializeMemoryManager_GetOptimalMoveProc(ASmallBlockSize: Integer): TMoveProc;
 begin
@@ -9460,7 +9640,7 @@ begin
     while NativeUInt(LPMediumBlockSpan) <> NativeUInt(LPMediumBlockManager) do
     begin
       LPNextMediumBlockSpan := LPMediumBlockSpan.NextMediumBlockSpanHeader;
-      OS_FreeVirtualMemory(LPMediumBlockSpan);
+      OS_FreeVirtualMemory(LPMediumBlockSpan, LPMediumBlockSpan.SpanSize);
       LPMediumBlockSpan := LPNextMediumBlockSpan;
     end;
 
@@ -9517,7 +9697,7 @@ begin
 
   if ExpectedMemoryLeaks <> nil then
   begin
-    OS_FreeVirtualMemory(ExpectedMemoryLeaks);
+    OS_FreeVirtualMemory(ExpectedMemoryLeaks, CExpectedMemoryLeaksListSize);
     ExpectedMemoryLeaks := nil;
   end;
 
@@ -9629,6 +9809,7 @@ end;
 
 function FastMM_LoadDebugSupportLibrary: Boolean;
 begin
+{$ifndef FastMM_DebugLibraryStaticDependency}
   {Already loaded?  If so, return success.}
   if DebugSupportLibraryHandle <> 0 then
     Exit(True);
@@ -9657,12 +9838,24 @@ begin
   end
   else
     Result := False;
+{$else}
+  {Use the stack trace routines from the debug support library.}
+  if (@FastMM_GetStackTrace = @FastMM_NoOpGetStackTrace) then
+    FastMM_GetStackTrace := @DebugLibrary_GetRawStackTrace;
+
+  if (@FastMM_ConvertStackTraceToText = @FastMM_NoOpConvertStackTraceToText) then
+    FastMM_ConvertStackTraceToText := @FastMM_DebugLibrary_LegacyLogStackTrace_Wrapper;
+
+  Result := True;
+{$endif}
 end;
 
 function FastMM_FreeDebugSupportLibrary: Boolean;
 begin
+{$ifndef FastMM_DebugLibraryStaticDependency}
   if DebugSupportLibraryHandle = 0 then
     Exit(False);
+{$endif}
 
   if (@FastMM_GetStackTrace = @DebugLibrary_GetRawStackTrace)
     or (@FastMM_GetStackTrace = @DebugLibrary_GetFrameBasedStackTrace) then
@@ -9675,12 +9868,14 @@ begin
     FastMM_ConvertStackTraceToText := @FastMM_NoOpConvertStackTraceToText;
   end;
 
+{$ifndef FastMM_DebugLibraryStaticDependency}
   FreeLibrary(DebugSupportLibraryHandle);
   DebugSupportLibraryHandle := 0;
 
   DebugLibrary_GetRawStackTrace := nil;
   DebugLibrary_GetFrameBasedStackTrace := nil;
   DebugLibrary_LogStackTrace_Legacy := nil;
+{$endif}
 
   Result := True;
 end;
@@ -9746,20 +9941,20 @@ begin
   DebugMode_StackTrace_EntryCount := AStackTraceEntryCount;
 end;
 
-procedure FastMM_ApplyLegacyConditionalDefines;
+procedure FastMM_ApplyConditionalDefines;
 begin
   {This procedure provides backward compatibility with the conditional defines of FastMM4.}
 
-  {$ifdef ClearLogFileOnStartup}
+  {$ifdef FastMM_ClearLogFileOnStartup}
   FastMM_DeleteEventLogFile;
   {$endif}
 
-  {$ifdef Align16Bytes}
+  {$ifdef FastMM_Align16Bytes}
   FastMM_EnterMinimumAddressAlignment(maa16Bytes);
   {$endif}
 
-  {$ifdef EnableMemoryLeakReporting}
-  {$ifdef RequireDebuggerPresenceForLeakReporting}
+  {$ifdef FastMM_EnableMemoryLeakReporting}
+  {$ifdef FastMM_RequireDebuggerPresenceForLeakReporting}
   if DebugHook <> 0 then
   {$endif}
   begin
@@ -9768,42 +9963,35 @@ begin
   end;
   {$endif}
 
-  {$ifdef NoMessageBoxes}
+  {$ifdef FastMM_NoMessageBoxes}
   FastMM_MessageBoxEvents := [];
   {$endif}
 
-  {$ifdef FullDebugModeWhenDLLAvailable}
-  {$define FullDebugMode}
+  {$ifdef FastMM_FullDebugModeWhenDLLAvailable}
+  {$define StartInDebugMode}
   {$endif}
 
-  {$ifdef FullDebugMode}
+  {$ifdef FastMM_FullDebugMode}
+  {$define StartInDebugMode}
+  {$endif}
+
+  {$ifdef StartInDebugMode}
   if FastMM_LoadDebugSupportLibrary then
-  begin
     FastMM_EnterDebugMode;
-  end
-  else
-  begin
-    {$ifndef FullDebugModeWhenDLLAvailable}
-    {Exception handling is not yet in place, so show an error message and terminate the application.}
-    OS_ShowMessageBox(FastMM_DebugSupportLibraryNotAvailableError, FastMM_DebugSupportLibraryNotAvailableError_Caption);
-    {Return error code 217 - the same error code that would be returned for an exception in an initialization section.}
-    Halt(217);
-    {$endif}
-  end;
   {$endif}
 
-  {$ifdef ShareMM}
-  {$ifndef ShareMMIfLibrary}
+  {$ifdef FastMM_ShareMM}
+  {$ifndef FastMM_ShareMMIfLibrary}
   if not IsLibrary then
   {$endif}
     FastMM_ShareMemoryManager;
   {$endif}
 
-  {$ifdef AttemptToUseSharedMM}
+  {$ifdef FastMM_AttemptToUseSharedMM}
   FastMM_AttemptToUseSharedMemoryManager;
   {$endif}
 
-  {$ifdef NeverUninstall}
+  {$ifdef FastMM_NeverUninstall}
   FastMM_NeverUninstall := True;
   {$endif}
 end;
@@ -9898,7 +10086,7 @@ begin
   accordingly.}
   if CurrentInstallationState = mmisInstalled then
   begin
-    FastMM_ApplyLegacyConditionalDefines;
+    FastMM_ApplyConditionalDefines;
     Result := True;
   end
   else
