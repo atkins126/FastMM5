@@ -87,7 +87,9 @@ uses
 
 const
   CReturnAddressCacheSize = 4096;
-  CMaxInfoTextLength = 128;
+  {FastMM assumes a maximum of 256 characters per stack trace entry.  The address text and line break are in addition to
+  the info text.}
+  CMaxInfoTextLength = 224;
 
 type
   {Return address info cache:  Maintains the source information for up to CReturnAddressCacheSize return addresses in
@@ -406,8 +408,7 @@ var
   LOld8087CW: Word;
   LOldMXCSR: Cardinal;
 begin
-  {We assume (for now) that all code will execute within the first 4GB of
-   address space.}
+  {We assume (for now) that all code will execute within the first 4GB of address space.}
   if (AReturnAddress > $ffff) {$if SizeOf(Pointer) = 8}and (AReturnAddress <= $ffffffff){$endif} then
   begin
     {The call address is up to 8 bytes before the return address}
